@@ -28,18 +28,25 @@ public class RiskTransfer {
       final PrecommitResponse precommitResponse = spectraGate.precommit(extendedRequest);
       //3. Выполняем проброс риска в  ASTS
       final AstsCommandResponse astsCommandResponse = astsGate.riskTransfer(extendedRequest);
-      //4. Подпписываемся на trade
-      final AstsTrade trade = astsGate.findTradeByBrokerRef(request.getBrokerRef());
-      //5. Выполняем второй коммит в спектру
-      final PostCommitResponse postCommitResponse = spectraGate.postCommit(extendedRequest);
-      // 6. Ищем сделки
-      final SpectraDeal deal = spectraGate.findDealByOrderNo(postCommitResponse.getOrderNo());
-      return new RiskTransferResponse(deal.getDealId(), trade.getTradeNo());
+
+      if (astsCommandResponse.isSuccess()) {
+        //4. Подпписываемся на trade
+        final AstsTrade trade = astsGate.findTradeByBrokerRef(request.getBrokerRef());
+        //5. Выполняем второй коммит в спектру
+        final PostCommitResponse postCommitResponse = spectraGate.postCommit(extendedRequest);
+        // 6. Ищем сделки
+        final SpectraDeal deal = spectraGate.findDealByOrderNo(postCommitResponse.getOrderNo());
+        return new RiskTransferResponse(deal.getDealId(), trade.getTradeNo());
+      } else {
+        // Если произошел отказ - откат в спектровый шлюз
+        spectraGate.rollback(request);
+        // Алертинг в спектровый бэкофис
+        spectraBO.alert(request);
+        return RiskTransferResponse.error();
+      }
     } catch (Throwable t) {
       // Алертинг в спектровый бэкофис
       spectraBO.alert(t, request);
-      // Откат в спектровый шлюз
-      spectraGate.rollback(t, request);
       return RiskTransferResponse.error(t);
     }
   }
